@@ -1,3 +1,16 @@
+"""
+Pandoc integration for sublime text markdown.
+
+Allows the user to export their markdown script to a number of different formats.
+Currently supported:
+ - html
+ - pdf
+ - docx
+
+Original Author: jclement (https://github.com/jclement/SublimePandoc)
+PDF integration: Daniel Mescheder
+"""
+
 import sublime, sublime_plugin
 import webbrowser
 import tempfile
@@ -69,10 +82,10 @@ class PandocRenderCommand(sublime_plugin.TextCommand):
     def open_result(self,outfile,target):
         if target == "html":
             webbrowser.open_new_tab(outfile)
-        elif sys.platform == "win32":
+        elif sublime.platform() == "windows":
             os.startfile(outfile)
-        elif sys.platform == "mac":
+        elif sublime.platform() == "osx":
             subprocess.call(["open", outfile])
-        elif "posix" in sys.platform or "linux" in sys.platform:
+        elif sublime.platform() == "linux":
             subprocess.call(["xdg-open", outfile])
 
