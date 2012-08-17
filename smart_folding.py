@@ -60,8 +60,18 @@ class SmartFoldingCommand(sublime_plugin.TextCommand):
         if self.is_region_totally_folded(content_region):
             self.unfold_yet_fold_subheads(content_region, level)
         else:
-            self.view.fold(content_region)
+            self.fold(content_region)
+
         return True
+
+    def fold(self, region):
+        """
+        Remember all the subfolds and fold the region.
+        This technique relies on the fact that the region will not be edited as
+        long as it is folded.
+        Furthermore, it is assumed that the order of the folded regions will not change.
+        """
+        self.view.fold(region)
 
     def is_region_totally_folded(self, region):
         """Decide if the region is folded. Treat empty region as folded."""
@@ -74,7 +84,7 @@ class SmartFoldingCommand(sublime_plugin.TextCommand):
         return False
 
     def unfold_yet_fold_subheads(self, region, level):
-        """Unfold the region while keeping the subheadlines folded."""
+        """Unfold the region while remembering folded subheadlines. """
         ## First unfold all
         self.view.unfold(region)
         ## Fold subheads
