@@ -1,33 +1,36 @@
-"""
-Pandoc integration for sublime text markdown.
+"""This file is initially forked from
+[SublimePandoc](https://github.com/jclement/SublimePandoc)
+by [DanielMe](https://github.com/DanielMe/)
 
-Allows the user to export their markdown script to a number of different formats.
-Currently supported:
- - html
- - pdf
- - docx
+@todo naming convention should be foo_bar rather than fooBar.
+@bug PDF export doesn't work in my Mac, gonna check it later.
 
-Original Author: jclement (https://github.com/jclement/SublimePandoc)
-PDF integration: Daniel Mescheder
+2012-07-02: Muchenxuan Tong changed some stylical errors (with SublimeLinter)
 """
 
-import sublime, sublime_plugin
+import sublime
+import sublime_plugin
 import webbrowser
 import tempfile
 import os
+import os.path
 import sys
 import subprocess
+from subprocess import PIPE
+
 
 class PandocRenderCommand(sublime_plugin.TextCommand):
-
     def is_enabled(self):
         return self.view.score_selector(0, "text.html.markdown") > 0
 
     def is_visible(self):
-        return True 
+        return True
 
-    def run(self, edit, target="pdf", openAfter=True, saveResult=False, additionalArguments=[]):
-        if not target in ["html","docx","pdf"]: raise Exception("Format %s currently unsopported" % target)
+    def run(self, edit, target="pdf", open_after=True, save_result=False):
+        if target not in ["html", "docx", "pdf"]:
+            raise Exception("Format %s currently unsopported" % target)
+
+        self.setting = sublime.load_settings("SmartMarkdown.sublime-settings")
 
         encoding = self.view.encoding()
         if encoding == 'Undefined':
@@ -35,6 +38,11 @@ class PandocRenderCommand(sublime_plugin.TextCommand):
         elif encoding == 'Western (Windows 1252)':
             encoding = 'windows-1252'
         contents = self.view.substr(sublime.Region(0, self.view.size()))
+        contents = contents.encode(encoding)
+
+        file_name = self.view.file_name()
+        if file_name:
+            os.chdir(os.path.dirname(file_name))
 
         # write buffer to temporary file
         # This is useful because it means we don't need to save the buffer
@@ -44,9 +52,9 @@ class PandocRenderCommand(sublime_plugin.TextCommand):
 
         # output file...
         suffix = "." + target
-        if saveResult:
-            output_name = os.path.splitext(self.view.file_name())[0]+suffix
-            if not self.view.file_name(): 
+        if save_result:
+            output_name = os.path.splitext(self.view.file_name())[0] + suffix
+            if not self.view.file_name():
                 raise Exception("Please safe the buffer before trying to export with pandoc.")
         else:
             output = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -54,38 +62,63 @@ class PandocRenderCommand(sublime_plugin.TextCommand):
             output_name = output.name
 
         args = self.pandoc_args(target)
-        self.run_pandoc(tmp_md.name,output_name,args)
-        if openAfter: self.open_result(output_name,target)
+        self.run_pandoc(tmp_md.name, output_name, args)
 
-    def run_pandoc(self, infile, outfile,args):
-        cmd  = ['pandoc'] + args
+        if open_after:
+            self.open_result(output_name, target)
+        #os.unlink(tmp_md.name)
+
+    def run_pandoc(self, infile, outfile, args):
+        cmd = ['pandoc'] + args
         cmd += [infile, "-o", outfile]
+
+        # Merge the path in settings
+        setting_path = self.setting.get("tex_path", [])
+        for p in setting_path:
+            if p not in os.environ["PATH"]:
+                os.environ["PATH"] += ":" + p
+
         try:
-            subprocess.call(cmd)
+            # Use the current directory as working dir whenever possible
+            file_name = self.view.file_name()
+            if file_name:
+                working_dir = os.path.dirname(file_name)
+                p = subprocess.Popen(cmd, stdout=PIPE, stderr=PIPE,
+                                     cwd=working_dir)
+
+            else:
+                p = subprocess.Popen(cmd, stdout=PIPE, stderr=PIPE)
+            p.wait()
+            out, err = p.communicate()
+            if err:
+                raise Exception("Command: %s\n" % " ".join(cmd) + "\nErrors: " + err)
         except Exception as e:
-            sublime.error_message("Unable to execute Pandoc.  \n\nDetails: {0}".format(e))
+            sublime.error_message("Fail to generate output.\n\b{0}".format(e))
 
-
-    def pandoc_args(self,target):
+    def pandoc_args(self, target):
         """
         Create a list of arguments for the pandoc command
         depending on the target.
         TODO: Actually do something sensible here
         """
-        if target == "pdf":
-            return []
-        if target == "html":
-            return ['-t', 'html5']
-        if target == "docx":
-            return ['-t', 'docx']
+        # Merge the args in settings
+        args = self.setting.get("pandoc_args", [])
 
-    def open_result(self,outfile,target):
+        if target == "pdf":
+            args += self.setting.get("pandoc_args_pdf", [])
+        if target == "html":
+            args += self.setting.get("pandoc_args_html", []) + ['-t', 'html5']
+        if target == "docx":
+            args += self.setting.get("pandoc_args_docx", []) + ['-t', 'docx']
+        return args
+
+    def open_result(self, outfile, target):
         if target == "html":
             webbrowser.open_new_tab(outfile)
-        elif sublime.platform() == "windows":
+        elif sys.platform == "win32":
             os.startfile(outfile)
-        elif sublime.platform() == "osx":
-            subprocess.call(["open", outfile])
-        elif sublime.platform() == "linux":
-            subprocess.call(["xdg-open", outfile])
-
+        elif "mac" in sys.platform or "darwin" in sys.platform:
+            os.system("open %s" % outfile)
+            print outfile
+        elif "posix" in sys.platform or "linux" in sys.platform:
+            os.system("xdg-open %s" % outfile)
